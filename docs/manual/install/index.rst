@@ -184,7 +184,7 @@ pywayland, pywlroots and python-xkbcommon. Also note that we may not have yet
 caught up with the latest wlroots release ourselves.
 
 .. note::
-   We currently support wlroots>=0.16.0,<0.17.0 and pywlroots>=0.16.4,<0.17.0.
+   We currently support wlroots==0.16.0,<0.17.0 and pywlroots==0.16.4.
 
 With the Wayland dependencies in place, Qtile can be run either from a TTY, or
 within an existing X11 or Wayland session where it will run inside a nested
@@ -196,3 +196,8 @@ window:
 
 See the :ref:`Wayland <wayland>` page for more information on running Qtile as
 a Wayland compositor.
+
+Similar to the xsession example above, a wayland session file can be used to start qtile
+from a login manager. To use this, you should create a `qtile-wayland.desktop
+<https://github.com/qtile/qtile/blob/master/resources/qtile-wayland.desktop>`_ file in
+``/usr/share/wayland-sessions``.

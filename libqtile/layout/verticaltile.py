@@ -18,9 +18,18 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from libqtile.command.base import expose_command
 from libqtile.layout.base import _SimpleLayoutBase
+
+if TYPE_CHECKING:
+    from typing import Self
+
+    from libqtile.backend.base import Window
+    from libqtile.group import _Group
 
 
 class VerticalTile(_SimpleLayoutBase):
@@ -108,12 +117,12 @@ class VerticalTile(_SimpleLayoutBase):
     def add_client(self, window):
         return self.clients.add_client(window, 1)
 
-    def remove(self, window):
+    def remove(self, window: Window) -> Window | None:
         if self.maximized is window:
             self.maximized = None
         return self.clients.remove(window)
 
-    def clone(self, group):
+    def clone(self, group: _Group) -> Self:
         c = _SimpleLayoutBase.clone(self, group)
         c.maximized = None
         return c
@@ -177,11 +186,11 @@ class VerticalTile(_SimpleLayoutBase):
             self.group.layout_all()
 
     @expose_command("up")
-    def previous(self):
+    def previous(self) -> None:
         _SimpleLayoutBase.previous(self)
 
     @expose_command("down")
-    def next(self):
+    def next(self) -> None:
         _SimpleLayoutBase.next(self)
 
     @expose_command()

@@ -32,12 +32,21 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+from __future__ import annotations
 
 import math
 from collections import namedtuple
+from typing import TYPE_CHECKING
 
 from libqtile.command.base import expose_command
 from libqtile.layout.base import _SimpleLayoutBase
+
+if TYPE_CHECKING:
+    from typing import Any, Self
+
+    from libqtile.backend.base import Window
+    from libqtile.config import ScreenRect
+    from libqtile.group import _Group
 
 
 class MonadTall(_SimpleLayoutBase):
@@ -219,22 +228,21 @@ class MonadTall(_SimpleLayoutBase):
     def _get_absolute_size_from_relative(self, relative_size):
         return int(relative_size * self.screen_rect.height)
 
-    def clone(self, group):
+    def clone(self, group: _Group) -> Self:
         "Clone layout for other groups"
         c = _SimpleLayoutBase.clone(self, group)
-        c.sizes = []
         c.relative_sizes = []
         c.screen_rect = group.screen.get_rect() if group.screen else None
         c.ratio = self.ratio
         c.align = self.align
         return c
 
-    def add_client(self, client):
+    def add_client(self, client: Window) -> None:  # type: ignore[override]
         "Add client to layout"
         self.clients.add_client(client, client_position=self.new_client_position)
         self.do_normalize = True
 
-    def remove(self, client):
+    def remove(self, client: Window) -> Window | None:
         "Remove client from layout"
         self.do_normalize = True
         return self.clients.remove(client)
@@ -307,7 +315,7 @@ class MonadTall(_SimpleLayoutBase):
             self._maximize_secondary()
         self.group.layout_all()
 
-    def configure(self, client, screen_rect):
+    def configure(self, client: Window, screen_rect: ScreenRect) -> None:
         "Position client based on order and sizes"
         self.screen_rect = screen_rect
 
@@ -409,7 +417,7 @@ class MonadTall(_SimpleLayoutBase):
             )
 
     @expose_command()
-    def info(self):
+    def info(self) -> dict[str, Any]:
         d = _SimpleLayoutBase.info(self)
         d.update(
             dict(
@@ -667,11 +675,11 @@ class MonadTall(_SimpleLayoutBase):
         self.relative_sizes[self.focused - 1] -= self._get_relative_size_from_absolute(change)
 
     @expose_command("down")
-    def next(self):
+    def next(self) -> None:
         _SimpleLayoutBase.next(self)
 
     @expose_command("up")
-    def previous(self):
+    def previous(self) -> None:
         _SimpleLayoutBase.previous(self)
 
     @expose_command()
@@ -720,7 +728,7 @@ class MonadTall(_SimpleLayoutBase):
         return target
 
     @expose_command()
-    def swap(self, window1, window2):
+    def swap(self, window1: Window, window2: Window) -> None:
         """Swap two windows"""
         _SimpleLayoutBase.swap(self, window1, window2)
 
@@ -1330,7 +1338,7 @@ class MonadThreeCol(MonadTall):
             ),
         )
 
-    def info(self):
+    def info(self) -> dict[str, Any]:
         left, right = self._get_columns()
         d = MonadTall.info(self)
         d.update(
