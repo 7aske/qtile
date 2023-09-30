@@ -1,5 +1,4 @@
-# Copyright (c) 2015 dmpayton
-# Copyright (c) 2021 elParaguayo
+# Copyright (c) 2023, elParaguayo. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -18,22 +17,25 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-from qtile_docs.templates.command import qtile_commands_template  # noqa: F401
-from qtile_docs.templates.graph import qtile_graph_template  # noqa: F401
-from qtile_docs.templates.hook import qtile_hooks_template  # noqa: F401
-from qtile_docs.templates.migrations import (  # noqa: F401
-    qtile_migrations_full_template,
-    qtile_migrations_template,
-)
-from qtile_docs.templates.module import qtile_module_template  # noqa: F401
-from qtile_docs.templates.qtile_class import qtile_class_template  # noqa: F401
+from __future__ import annotations
 
-__all__ = [
-    "qtile_commands_template",
-    "qtile_graph_template",
-    "qtile_hooks_template",
-    "qtile_module_template",
-    "qtile_class_template",
-    "qtile_migrations_template",
-    "qtile_migrations_full_template",
-]
+import importlib
+import pkgutil
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import Type
+
+    from libqtile.scripts.migrations._base import _QtileMigrator
+
+MIGRATIONS: list[Type[_QtileMigrator]] = []
+MIGRATION_FOLDER = Path(__file__).parent
+
+
+def load_migrations():
+    if MIGRATIONS:
+        return
+    for _, name, ispkg in pkgutil.iter_modules([MIGRATION_FOLDER.resolve().as_posix()]):
+        if not name.startswith("_"):
+            importlib.import_module(f"libqtile.scripts.migrations.{name}")
