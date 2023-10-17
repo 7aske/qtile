@@ -113,6 +113,16 @@ to ensure your patch complies with reasonable formatting constraints. We also
 request that git commit messages follow the
 `standard format <https://tbaggery.com/2008/04/19/a-note-about-git-commit-messages.html>`_.
 
+Some common linting errors and how to resolve them:
+
+==================================================== =======================================================
+Lint Error                                           Fix
+==================================================== =======================================================
+``I001 isort found an import in the wrong position`` ``python -m isort ./libqtile/``
+``I005 isort found an unexpected missing import``    ``python -m isort ./libqtile/``
+``BLK100 Black would make changes.``                 ``python -m black ./libqtile/``
+==================================================== =======================================================
+
 Logging
 =======
 
