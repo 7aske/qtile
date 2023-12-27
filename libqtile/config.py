@@ -28,6 +28,7 @@
 from __future__ import annotations
 
 import os.path
+import re
 import sys
 from typing import TYPE_CHECKING
 
@@ -37,7 +38,6 @@ from libqtile.command.base import CommandObject, expose_command
 from libqtile.log_utils import logger
 
 if TYPE_CHECKING:
-    import re
     from typing import Any, Callable, Iterable
 
     from libqtile.backend import base
@@ -818,6 +818,20 @@ class ScratchPad(Group):
         )
 
 
+def convert_deprecated_list(vals: list[str], name: str) -> re.Pattern:
+    # make a regex with OR on word boundaries
+    regex_input = r"^({})$".format("|".join(map(re.escape, vals)))
+    logger.warning(
+        "Your Match with the %s property is using lists which are deprecated, replace Match(%s=%s) with Match(%s=re.compile(r\"%s\")) after importing the 're' module",
+        name,
+        name,
+        vals,
+        name,
+        regex_input,
+    )
+    return re.compile(regex_input)
+
+
 class Match:
     """
     Window properties to compare (match) with a window.
@@ -829,7 +843,7 @@ class Match:
     against and returns a boolean.
 
     For some properties, :class:`Match` supports both regular expression objects (i.e.
-    the result of ``re.compile()``) or strings (match as an "include"-match). If a
+    the result of ``re.compile()``) or strings (match as an exact string). If a
     window matches all specified values, it is considered a match.
 
     Parameters
@@ -837,7 +851,7 @@ class Match:
     title:
         Match against the WM_NAME atom (X11) or title (Wayland).
     wm_class:
-        Match against the second string in WM_CLASS atom (X11) or app ID (Wayland).
+        Match against any value in the whole WM_CLASS atom (X11) or app ID (Wayland).
     role:
         Match against the WM_ROLE atom (X11 only).
     wm_type:
@@ -868,10 +882,18 @@ class Match:
         self._rules: dict[str, Any] = {}
 
         if title is not None:
+            if isinstance(title, list):  # type: ignore
+                title = convert_deprecated_list(title, "title")  # type: ignore
             self._rules["title"] = title
         if wm_class is not None:
+            if isinstance(wm_class, list):  # type: ignore
+                wm_class = convert_deprecated_list(wm_class, "wm_class")  # type: ignore
             self._rules["wm_class"] = wm_class
         if wm_instance_class is not None:
+            if isinstance(wm_instance_class, list):  # type: ignore
+                wm_instance_class = convert_deprecated_list(  # type: ignore
+                    wm_instance_class, "wm_instance_class"
+                )
             self._rules["wm_instance_class"] = wm_instance_class
         if wid is not None:
             self._rules["wid"] = wid
@@ -885,8 +907,12 @@ class Match:
             self._rules["func"] = func
 
         if role is not None:
+            if isinstance(role, list):  # type: ignore
+                role = convert_deprecated_list(role, "role")  # type: ignore
             self._rules["role"] = role
         if wm_type is not None:
+            if isinstance(wm_type, list):  # type: ignore
+                wm_type = convert_deprecated_list(wm_type, "wm_type")  # type: ignore
             self._rules["wm_type"] = wm_type
 
     @staticmethod
@@ -896,16 +922,14 @@ class Match:
         elif name == "wm_class":
 
             def predicate(other) -> bool:  # type: ignore
-                # match as an "include"-match on any of the received classes
-                match = getattr(other, "match", lambda v: v in other)
+                match = getattr(other, "match", lambda v: v == other)
                 return value and any(match(v) for v in value)
 
             return predicate
         else:
 
             def predicate(other) -> bool:  # type: ignore
-                # match as an "include"-match
-                match = getattr(other, "match", lambda v: v in other)
+                match = getattr(other, "match", lambda v: v == other)
                 return match(value)
 
             return predicate
