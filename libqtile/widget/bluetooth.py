@@ -353,7 +353,6 @@ class Bluetooth(base._TextBox, base.MarginMixin):
             None,
             "Time before reverting to default_text. If 'None', text will stay on selected item.",
         ),
-        ("hci", None, "(deprecated) same as 'device'."),
         (
             "device",
             None,
@@ -380,10 +379,7 @@ class Bluetooth(base._TextBox, base.MarginMixin):
             {"Button1": self.click, "Button4": self.scroll_up, "Button5": self.scroll_down}
         )
         self.timer = None
-
-        if "hci" in config and "device" not in config:
-            logger.warning("The 'hci' parameter is deprecated, please use 'device'.")
-            self.device = config["hci"]
+        self.object_manager = None
 
     def _configure(self, qtile, bar):
         base._TextBox._configure(self, qtile, bar)
@@ -679,15 +675,20 @@ class Bluetooth(base._TextBox, base.MarginMixin):
         self.refresh()
 
     def finalize(self):
-        """Remove dbus signal handlers before finalising."""
+        # if we failed to connect, there is nothing to finalize.
+        if self.bus is None:
+            return
+
+        # Remove dbus signal handlers before finalising.
         # Clearing dicts will call the __del__ method on the stored objects
         # which has been defined to remove signal handlers
         self.devices.clear()
         self.adapters.clear()
 
         # Remove object manager's handlers
-        self.object_manager.off_interfaces_added(self._interface_added)
-        self.object_manager.off_interfaces_removed(self._interface_removed)
+        if self.object_manager is not None:
+            self.object_manager.off_interfaces_added(self._interface_added)
+            self.object_manager.off_interfaces_removed(self._interface_removed)
 
         # Disconnect the bus connection
         self.bus.disconnect()

@@ -5,7 +5,6 @@ import typing
 from abc import ABCMeta, abstractmethod
 
 from libqtile.command.base import CommandError, CommandObject, expose_command
-from libqtile.log_utils import logger
 
 if typing.TYPE_CHECKING:
     from typing import Any
@@ -218,6 +217,17 @@ class _Window(CommandObject, metaclass=ABCMeta):
         window.
         """
 
+    @abstractmethod
+    @expose_command()
+    def bring_to_front(self) -> None:
+        """
+        Bring the window to the front.
+
+        In X11, `bring_to_front` ignores all other layering rules and brings the
+        window to the very front. When that window loses focus, it will be stacked
+        again according the appropriate rules.
+        """
+
 
 class Window(_Window, metaclass=ABCMeta):
     """
@@ -287,7 +297,7 @@ class Window(_Window, metaclass=ABCMeta):
         """Does this window want to be fullscreen?"""
         return False
 
-    def match(self, match: config.Match) -> bool:
+    def match(self, match: config._Match) -> bool:
         """Compare this window against a Match instance."""
         return match.compare(self)
 
@@ -395,21 +405,9 @@ class Window(_Window, metaclass=ABCMeta):
 
     @abstractmethod
     @expose_command()
-    def bring_to_front(self) -> None:
-        """
-        Bring the window to the front.
-
-        In X11, `bring_to_front` ignores all other layering rules and brings the
-        window to the very front. When that window loses focus, it will be stacked
-        again according the appropriate rules.
-        """
-
-    @abstractmethod
-    @expose_command()
     def togroup(
         self,
         group_name: str | None = None,
-        groupName: str | None = None,  # Deprecated  # noqa: N803
         switch_group: bool = False,
         toggle: bool = False,
     ) -> None:
@@ -419,9 +417,6 @@ class Window(_Window, metaclass=ABCMeta):
 
         If `toggle` is True and and the specified group is already on the screen,
         use the last used group as target instead.
-
-        `groupName` is deprecated and will be dropped soon. Please use `group_name`
-        instead.
 
         Examples
         ========
@@ -438,9 +433,6 @@ class Window(_Window, metaclass=ABCMeta):
 
             togroup("a", switch_group=True)
         """
-        if groupName is not None:
-            logger.warning("Window.togroup's groupName is deprecated; use group_name")
-            group_name = groupName
         self.togroup(group_name, switch_group=switch_group, toggle=toggle)
 
     @expose_command()
@@ -587,11 +579,6 @@ class Static(_Window, metaclass=ABCMeta):
             height=self.height,
             id=self.wid,
         )
-
-    @abstractmethod
-    @expose_command()
-    def bring_to_front(self) -> None:
-        """Bring the window to the front"""
 
 
 WindowType = typing.Union[Window, Internal, Static]

@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import asyncio
+import faulthandler
 import io
 import logging
 import os
@@ -213,6 +214,10 @@ class Qtile(CommandObject):
         self.core.qtile = self
         self.load_config(initial=True)
         self.core.setup_listener()
+
+        faulthandler.enable(all_threads=True)
+        faulthandler.register(signal.SIGUSR2, all_threads=True)
+
         try:
             async with LoopContext(
                 {
@@ -220,7 +225,6 @@ class Qtile(CommandObject):
                     signal.SIGINT: self.stop,
                     signal.SIGHUP: self.stop,
                     signal.SIGUSR1: self.reload_config,
-                    signal.SIGUSR2: self.restart,
                 }
             ), ipc.Server(
                 self._prepare_socket_path(self.socket_path),
@@ -449,7 +453,7 @@ class Qtile(CommandObject):
             for cmd in key.commands:
                 if cmd.check(self):
                     status, val = self.server.call(
-                        (cmd.selectors, cmd.name, cmd.args, cmd.kwargs)
+                        (cmd.selectors, cmd.name, cmd.args, cmd.kwargs, False)
                     )
                     if status in (interface.ERROR, interface.EXCEPTION):
                         logger.error("KB command error %s: %s", cmd.name, val)
@@ -797,7 +801,9 @@ class Qtile(CommandObject):
             if isinstance(m, Click):
                 for i in m.commands:
                     if i.check(self):
-                        status, val = self.server.call((i.selectors, i.name, i.args, i.kwargs))
+                        status, val = self.server.call(
+                            (i.selectors, i.name, i.args, i.kwargs, False)
+                        )
                         if status in (interface.ERROR, interface.EXCEPTION):
                             logger.error("Mouse command error %s: %s", i.name, val)
                         handled = True
@@ -806,7 +812,7 @@ class Qtile(CommandObject):
             ):
                 if m.start:
                     i = m.start
-                    status, val = self.server.call((i.selectors, i.name, i.args, i.kwargs))
+                    status, val = self.server.call((i.selectors, i.name, i.args, i.kwargs, False))
                     if status in (interface.ERROR, interface.EXCEPTION):
                         logger.error("Mouse command error %s: %s", i.name, val)
                         continue
@@ -845,7 +851,7 @@ class Qtile(CommandObject):
             for i in cmd:
                 if i.check(self):
                     status, val = self.server.call(
-                        (i.selectors, i.name, i.args + (rx + dx, ry + dy), i.kwargs)
+                        (i.selectors, i.name, i.args + (rx + dx, ry + dy), i.kwargs, False)
                     )
                     if status in (interface.ERROR, interface.EXCEPTION):
                         logger.error("Mouse command error %s: %s", i.name, val)
@@ -1119,7 +1125,7 @@ class Qtile(CommandObject):
         return list(self.widgets_map.keys())
 
     @expose_command()
-    def to_layout_index(self, index: str, name: str | None = None) -> None:
+    def to_layout_index(self, index: int, name: str | None = None) -> None:
         """
         Switch to the layout with the given index in self.layouts.
 
@@ -1225,7 +1231,7 @@ class Qtile(CommandObject):
 
     @expose_command()
     def spawn(
-        self, cmd: str | list[str], shell: bool = False, env: dict[str, str] = dict()
+        self, cmd: list[str] | str, shell: bool = False, env: dict[str, str] = dict()
     ) -> int:
         """
         Spawn a new process.
