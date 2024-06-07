@@ -55,8 +55,9 @@ from xcffib.xproto import CW, EventMask, WindowClass
 from libqtile.backend.x11 import window
 from libqtile.backend.x11.xcursors import Cursors
 from libqtile.backend.x11.xkeysyms import keysyms
+from libqtile.config import ScreenRect
 from libqtile.log_utils import logger
-from libqtile.utils import QtileError, hex
+from libqtile.utils import QtileError, hex, rgb
 
 
 class XCBQError(QtileError):
@@ -361,20 +362,6 @@ class Screen(_Wrapper):
                     return i.visuals[0]
 
 
-class PseudoScreen:
-    """
-    This may be a Xinerama screen or a RandR CRTC, both of which are
-    rectangular sections of an actual Screen.
-    """
-
-    def __init__(self, conn, x, y, width, height):
-        self.conn = conn
-        self.x = x
-        self.y = y
-        self.width = width
-        self.height = height
-
-
 class Colormap:
     def __init__(self, conn, cid):
         self.conn = conn
@@ -415,20 +402,17 @@ class Xinerama:
 class RandR:
     def __init__(self, conn):
         self.ext = conn.conn(xcffib.randr.key)
-        self.ext.SelectInput(conn.default_screen.root.wid, xcffib.randr.NotifyMask.ScreenChange)
 
     def query_crtcs(self, root):
-        crtc_list = []
+        infos = []
         for crtc in self.ext.GetScreenResources(root).reply().crtcs:
             crtc_info = self.ext.GetCrtcInfo(crtc, xcffib.CurrentTime).reply()
-            crtc_dict = {
-                "x": crtc_info.x,
-                "y": crtc_info.y,
-                "width": crtc_info.width,
-                "height": crtc_info.height,
-            }
-            crtc_list.append(crtc_dict)
-        return crtc_list
+
+            infos.append(ScreenRect(crtc_info.x, crtc_info.y, crtc_info.width, crtc_info.height))
+        return infos
+
+    def enable_screen_change_notifications(self, conn):
+        self.ext.SelectInput(conn.default_screen.root.wid, xcffib.randr.NotifyMask.ScreenChange)
 
 
 class XFixes:
@@ -499,28 +483,22 @@ class Connection:
 
     @property
     def pseudoscreens(self):
-        pseudoscreens = []
         if hasattr(self, "xinerama"):
+            pseudoscreens = []
             for i, s in enumerate(self.xinerama.query_screens()):
-                scr = PseudoScreen(
-                    self,
+                scr = ScreenRect(
                     s.x_org,
                     s.y_org,
                     s.width,
                     s.height,
                 )
                 pseudoscreens.append(scr)
+            return pseudoscreens
         elif hasattr(self, "randr"):
-            for i in self.randr.query_crtcs(self.screens[0].root.wid):
-                scr = PseudoScreen(
-                    self,
-                    i["x"],
-                    i["y"],
-                    i["width"],
-                    i["height"],
-                )
-                pseudoscreens.append(scr)
-        return pseudoscreens
+            return self.randr.query_crtcs(self.screens[0].root.wid)
+
+    def enable_screen_change_notifications(self):
+        self.randr.enable_screen_change_notifications(self)
 
     def finalize(self):
         self.cursors.finalize()
@@ -656,15 +634,9 @@ class Painter:
         self.atoms = AtomCache(self)
         self.width = -1
         self.height = -1
+        self.root_pixmap_id = None
 
-    def paint(self, screen, image_path, mode=None):
-        try:
-            with open(image_path, "rb") as f:
-                image, _ = cairocffi.pixbuf.decode_to_image_surface(f.read())
-        except IOError:
-            logger.exception("Could not load wallpaper:")
-            return
-
+    def _get_root_pixmap_and_surface(self, screen):
         # Querying the screen dimensions via the xcffib connection does not
         # take account of any screen scaling. We can therefore work out the
         # necessary size of the root window by looking at the
@@ -708,29 +680,9 @@ class Painter:
             self.conn, root_pixmap, root_visual, self.width, self.height
         )
 
-        context = cairocffi.Context(surface)
-        with context:
-            context.translate(screen.x, screen.y)
-            if mode == "fill":
-                context.rectangle(0, 0, screen.width, screen.height)
-                context.clip()
-                image_w = image.get_width()
-                image_h = image.get_height()
-                width_ratio = screen.width / image_w
-                if width_ratio * image_h >= screen.height:
-                    context.scale(width_ratio)
-                else:
-                    height_ratio = screen.height / image_h
-                    context.translate(-(image_w * height_ratio - screen.width) // 2, 0)
-                    context.scale(height_ratio)
-            elif mode == "stretch":
-                context.scale(
-                    sx=screen.width / image.get_width(),
-                    sy=screen.height / image.get_height(),
-                )
-            context.set_source_surface(image)
-            context.paint()
+        return root_pixmap, surface
 
+    def _update_root_pixmap(self, root_pixmap):
         self.conn.core.ChangeProperty(
             xcffib.xproto.PropMode.Replace,
             self.default_screen.root.wid,
@@ -754,6 +706,59 @@ class Painter:
         )
         self.conn.core.ClearArea(0, self.default_screen.root.wid, 0, 0, self.width, self.height)
         self.conn.flush()
+
+        # now that we have drawn the new pixmap, free the old one
+        if self.root_pixmap_id is not None and self.root_pixmap_id != root_pixmap:
+            self.conn.core.FreePixmap(self.root_pixmap_id)
+        self.root_pixmap_id = root_pixmap
+
+    def fill(self, screen, background):
+        root_pixmap, surface = self._get_root_pixmap_and_surface(screen)
+
+        with cairocffi.Context(surface) as ctx:
+            ctx.translate(screen.x, screen.y)
+            ctx.rectangle(0, 0, screen.width, screen.height)
+            ctx.set_source_rgba(*rgb(background))
+            ctx.fill()
+
+        surface.finish()
+        self._update_root_pixmap(root_pixmap)
+
+    def paint(self, screen, image_path, mode=None):
+        try:
+            with open(image_path, "rb") as f:
+                image, _ = cairocffi.pixbuf.decode_to_image_surface(f.read())
+        except IOError:
+            logger.exception("Could not load wallpaper:")
+            return
+
+        root_pixmap, surface = self._get_root_pixmap_and_surface(screen)
+
+        context = cairocffi.Context(surface)
+        with context:
+            context.translate(screen.x, screen.y)
+            if mode == "fill":
+                context.rectangle(0, 0, screen.width, screen.height)
+                context.clip()
+                image_w = image.get_width()
+                image_h = image.get_height()
+                width_ratio = screen.width / image_w
+                if width_ratio * image_h >= screen.height:
+                    context.scale(width_ratio)
+                else:
+                    height_ratio = screen.height / image_h
+                    context.translate(-(image_w * height_ratio - screen.width) // 2, 0)
+                    context.scale(height_ratio)
+            elif mode == "stretch":
+                context.scale(
+                    sx=screen.width / image.get_width(),
+                    sy=screen.height / image.get_height(),
+                )
+            context.set_source_surface(image)
+            context.paint()
+
+        surface.finish()
+        self._update_root_pixmap(root_pixmap)
 
     def __del__(self):
         self.conn.disconnect()

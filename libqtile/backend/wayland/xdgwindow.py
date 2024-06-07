@@ -23,9 +23,10 @@ from __future__ import annotations
 import typing
 
 from pywayland.server import Listener
+from wlroots.util.box import Box
 from wlroots.util.clock import Timespec
 from wlroots.util.edges import Edges
-from wlroots.wlr_types.xdg_shell import XdgSurface, XdgTopLevelWMCapabilities
+from wlroots.wlr_types.xdg_shell import XdgSurface, XdgToplevelWMCapabilities
 
 from libqtile import hook
 from libqtile.backend import base
@@ -49,9 +50,9 @@ if typing.TYPE_CHECKING:
 
 EDGES_TILED = Edges.TOP | Edges.BOTTOM | Edges.LEFT | Edges.RIGHT
 WM_CAPABILITIES = (
-    XdgTopLevelWMCapabilities.MAXIMIZE
-    | XdgTopLevelWMCapabilities.FULLSCREEN
-    | XdgTopLevelWMCapabilities.MINIMIZE
+    XdgToplevelWMCapabilities.MAXIMIZE
+    | XdgToplevelWMCapabilities.FULLSCREEN
+    | XdgToplevelWMCapabilities.MINIMIZE
 )
 
 
@@ -66,13 +67,20 @@ class XdgWindow(Window[XdgSurface]):
         surface.data = self.data_handle
         self.tree = core.scene.xdg_surface_create(self.container, surface)
 
-        self.add_listener(surface.map_event, self._on_map)
-        self.add_listener(surface.unmap_event, self._on_unmap)
+        self.add_listener(surface.surface.map_event, self._on_map)
+        self.add_listener(surface.surface.unmap_event, self._on_unmap)
+        self.add_listener(surface.surface.commit_event, self._on_commit)
         self.add_listener(surface.destroy_event, self._on_destroy)
         self.add_listener(surface.toplevel.request_maximize_event, self._on_request_maximize)
         self.add_listener(surface.toplevel.request_fullscreen_event, self._on_request_fullscreen)
 
         self.ftm_handle = core.foreign_toplevel_manager_v1.create_handle()
+
+    def _on_commit(self, _listener: Listener, _data: Any) -> None:
+        if self not in self.core.pending_windows and self.container.node.enabled:
+            self.place(
+                self.x, self.y, self.width, self.height, self.borderwidth, self.bordercolor
+            )
 
     def _on_request_fullscreen(self, _listener: Listener, _data: Any) -> None:
         logger.debug("Signal: xdgwindow request_fullscreen")
@@ -214,6 +222,16 @@ class XdgWindow(Window[XdgSurface]):
             self._urgent = True
             hook.fire("client_urgent_hint_changed", self)
 
+    def clip(self) -> None:
+        if not self.tree:
+            return
+        if not self.tree.node.enabled:
+            return
+        if next(self.tree.children, None) is None:
+            return
+        geom = self.surface.get_geometry()
+        self.tree.node.subsurface_tree_set_clip(Box(geom.x, geom.y, self.width, self.height))
+
     def place(
         self,
         x: int,
@@ -249,13 +267,22 @@ class XdgWindow(Window[XdgSurface]):
             self.float_x = x - self.group.screen.x
             self.float_y = y - self.group.screen.y
 
+        if width < 1:
+            width = 1
+
+        if height < 1:
+            height = 1
+
         self.x = x
         self.y = y
-        self.container.node.set_position(x, y)
         self._width = width
         self._height = height
+
+        self.container.node.set_position(x, y)
         self.surface.set_size(width, height)
         self.surface.set_bounds(width, height)
+        self.clip()
+
         self.paint_borders(bordercolor, borderwidth)
 
         if above:
@@ -286,7 +313,6 @@ class XdgWindow(Window[XdgSurface]):
             self.core,
             self.qtile,
             self,
-            self._idle_inhibitors_count,
         )
 
 
@@ -298,19 +324,16 @@ class XdgStatic(Static[XdgSurface]):
         core: Core,
         qtile: Qtile,
         win: XdgWindow,
-        idle_inhibitor_count: int,
     ):
         surface = win.surface
-        Static.__init__(
-            self, core, qtile, surface, win.wid, idle_inhibitor_count=idle_inhibitor_count
-        )
+        Static.__init__(self, core, qtile, surface, win.wid)
 
         if surface.toplevel.title:
             self.name = surface.toplevel.title
         self._wm_class = surface.toplevel.app_id
 
-        self.add_listener(surface.map_event, self._on_map)
-        self.add_listener(surface.unmap_event, self._on_unmap)
+        self.add_listener(surface.surface.map_event, self._on_map)
+        self.add_listener(surface.surface.unmap_event, self._on_unmap)
         self.add_listener(surface.destroy_event, self._on_destroy)
         # self.add_listener(surface.surface.commit_event, self._on_commit)
         self.add_listener(surface.toplevel.set_title_event, self._on_set_title)

@@ -45,7 +45,7 @@ from libqtile.command.client import InteractiveCommandClient
 from libqtile.command.interface import IPCCommandServer, QtileCommandInterface
 from libqtile.config import Click, Drag, Key, KeyChord, Match, Mouse, Rule
 from libqtile.config import ScratchPad as ScratchPadConfig
-from libqtile.config import Screen
+from libqtile.config import Screen, ScreenRect
 from libqtile.core.lifecycle import lifecycle
 from libqtile.core.loop import LoopContext, QtileEventLoopPolicy
 from libqtile.core.state import QtileState
@@ -65,6 +65,7 @@ if TYPE_CHECKING:
     from libqtile.command.base import ItemT
     from libqtile.confreader import Config
     from libqtile.layout.base import Layout
+    from libqtile.utils import ColorType
 
 
 class Qtile(CommandObject):
@@ -310,8 +311,6 @@ class Qtile(CommandObject):
         shutdown, these are finalized and then regenerated when reloading the config.
         """
         try:
-            for widget in self.widgets_map.values():
-                widget.finalize()
             self.widgets_map.clear()
 
             # For layouts we need to finalize each clone of a layout in each group
@@ -320,8 +319,7 @@ class Qtile(CommandObject):
                     layout.finalize()
 
             for screen in self.screens:
-                for gap in screen.gaps:
-                    gap.finalize()
+                screen.finalize()
         except:  # noqa: E722
             logger.exception("exception during finalize")
         hook.clear()
@@ -357,20 +355,22 @@ class Qtile(CommandObject):
         screens = []
 
         if hasattr(self.config, "fake_screens"):
-            screen_info = [(s.x, s.y, s.width, s.height) for s in self.config.fake_screens]
+            screen_info = [
+                ScreenRect(s.x, s.y, s.width, s.height) for s in self.config.fake_screens
+            ]
             config = self.config.fake_screens
         else:
             # Alias screens with the same x and y coordinates, taking largest
             xywh = {}  # type: dict[tuple[int, int], tuple[int, int]]
-            for sx, sy, sw, sh in self.core.get_screen_info():
-                pos = (sx, sy)
+            for info in self.core.get_screen_info():
+                pos = (info.x, info.y)
                 width, height = xywh.get(pos, (0, 0))
-                xywh[pos] = (max(width, sw), max(height, sh))
+                xywh[pos] = (max(width, info.width), max(height, info.height))
 
-            screen_info = [(x, y, w, h) for (x, y), (w, h) in xywh.items()]
+            screen_info = [ScreenRect(x, y, w, h) for (x, y), (w, h) in xywh.items()]
             config = self.config.screens
 
-        for i, (x, y, w, h) in enumerate(screen_info):
+        for i, info in enumerate(screen_info):
             if i + 1 > len(config):
                 scr = Screen()
             else:
@@ -392,9 +392,9 @@ class Qtile(CommandObject):
 
             # If the screen has changed position and/or size, or is a new screen then make sure that any gaps/bars
             # are reconfigured
-            reconfigure_gaps = ((x, y, w, h) != (scr.x, scr.y, scr.width, scr.height)) or (
-                i + 1 > len(self.screens)
-            )
+            reconfigure_gaps = (
+                (info.x, info.y, info.width, info.height) != (scr.x, scr.y, scr.width, scr.height)
+            ) or (i + 1 > len(self.screens))
 
             if not hasattr(scr, "group"):
                 # Ensure that this screen actually *has* a group, as it won't get
@@ -405,14 +405,21 @@ class Qtile(CommandObject):
                 # a group anyway.
                 scr.group = grp
 
-            scr._configure(self, i, x, y, w, h, grp, reconfigure_gaps=reconfigure_gaps)
+            scr._configure(
+                self,
+                i,
+                info.x,
+                info.y,
+                info.width,
+                info.height,
+                grp,
+                reconfigure_gaps=reconfigure_gaps,
+            )
             screens.append(scr)
 
         for screen in self.screens:
             if screen not in screens:
-                for gap in screen.gaps:
-                    if isinstance(gap, bar.Bar) and gap.window:
-                        gap.kill_window()
+                screen.finalize()
 
         self.screens = screens
 
@@ -438,6 +445,9 @@ class Qtile(CommandObject):
 
     def paint_screen(self, screen: Screen, image_path: str, mode: str | None = None) -> None:
         self.core.painter.paint(screen, image_path, mode)
+
+    def fill_screen(self, screen: Screen, background: ColorType) -> None:
+        self.core.painter.fill(screen, background)
 
     def process_key_event(self, keysym: int, mask: int) -> tuple[Key | KeyChord | None, bool]:
         key = self.keys_map.get((keysym, mask), None)
@@ -473,8 +483,10 @@ class Qtile(CommandObject):
         Useful when a keyboard mapping event is received.
         """
         self.core.ungrab_keys()
-        for key in self.keys_map.values():
-            self.core.grab_key(key)
+        keys = self.keys_map.copy()
+        self.keys_map.clear()
+        for key in keys.values():
+            self.grab_key(key)
 
     def grab_key(self, key: Key | KeyChord) -> None:
         """Grab the given key event"""
@@ -1075,7 +1087,12 @@ class Qtile(CommandObject):
 
         def walk_binding(k: Key | KeyChord, mode: str) -> None:
             nonlocal rows
-            modifiers, name = ", ".join(k.modifiers), k.key
+            modifiers = ", ".join(k.modifiers)
+            if isinstance(k.key, int):
+                name = hex(k.key)
+            else:
+                name = k.key
+
             if isinstance(k, Key):
                 if not k.commands:
                     return

@@ -23,6 +23,7 @@ from __future__ import annotations
 import typing
 
 from wlroots import xwayland
+from wlroots.util.box import Box
 from wlroots.wlr_types import SceneTree
 
 from libqtile import hook
@@ -59,19 +60,39 @@ class XWindow(Window[xwayland.Surface]):
             self.name = title
 
         # Add some listeners
-        self.add_listener(surface.map_event, self._on_map)
-        self.add_listener(surface.unmap_event, self._on_unmap)
+        self.add_listener(surface.associate_event, self._on_associate)
+        self.add_listener(surface.dissociate_event, self._on_dissociate)
         self.add_listener(surface.request_activate_event, self._on_request_activate)
         self.add_listener(surface.request_configure_event, self._on_request_configure)
         self.add_listener(surface.destroy_event, self._on_destroy)
 
+    def _on_associate(self, _listener: Listener, _data: Any) -> None:
+        logger.debug("Signal: xwindow associate")
+        if wlr_surface := self.surface.surface:
+            self.add_listener(wlr_surface.map_event, self._on_map)
+            self.add_listener(wlr_surface.unmap_event, self._on_unmap)
+        else:
+            raise RuntimeError("XWayland surface unexpectedly has no wlr_surface")
+
+    def _on_dissociate(self, _listener: Listener, _data: Any) -> None:
+        logger.debug("Signal: xwindow dissociate")
+        if wlr_surface := self.surface.surface:
+            self.finalize_listener(wlr_surface.map_event)
+            self.finalize_listener(wlr_surface.unmap_event)
+
     def _on_commit(self, _listener: Listener, _data: Any) -> None:
         if self.floating:
-            state = self.surface.surface.current
-            if state.width != self._width or state.height != self._height:
-                self.place(
-                    self.x, self.y, state.width, state.height, self.borderwidth, self.bordercolor
-                )
+            if wlr_surface := self.surface.surface:
+                state = wlr_surface.current
+                if state.width != self._width or state.height != self._height:
+                    self.place(
+                        self.x,
+                        self.y,
+                        state.width,
+                        state.height,
+                        self.borderwidth,
+                        self.bordercolor,
+                    )
 
     def _on_request_activate(self, _listener: Listener, event: SurfaceConfigureEvent) -> None:
         logger.debug("Signal: xwindow request_activate")
@@ -107,8 +128,6 @@ class XWindow(Window[xwayland.Surface]):
             self.core.pending_windows.add(self)
             self._wid = -1
             # Restore the listeners that we set up in __init__
-            self.add_listener(self.surface.map_event, self._on_map)
-            self.add_listener(self.surface.unmap_event, self._on_unmap)
             self.add_listener(self.surface.request_configure_event, self._on_request_configure)
             self.add_listener(self.surface.destroy_event, self._on_destroy)
 
@@ -272,6 +291,15 @@ class XWindow(Window[xwayland.Surface]):
             if self.ftm_handle:
                 self.ftm_handle.set_fullscreen(do_full)
 
+    def clip(self) -> None:
+        if not self.tree:
+            return
+        if not self.tree.node.enabled:
+            return
+        if next(self.tree.children, None) is None:
+            return
+        self.tree.node.subsurface_tree_set_clip(Box(0, 0, self._width, self._height))
+
     def place(
         self,
         x: int,
@@ -308,12 +336,21 @@ class XWindow(Window[xwayland.Surface]):
             self.float_x = x - self.group.screen.x
             self.float_y = y - self.group.screen.y
 
+        if width < 1:
+            width = 1
+
+        if height < 1:
+            height = 1
+
         self.x = x
         self.y = y
         self._width = width
         self._height = height
+
         self.container.node.set_position(x, y)
         self.surface.configure(x, y, width, height)
+        self.clip()
+
         self.paint_borders(bordercolor, borderwidth)
 
         if above:
@@ -339,9 +376,7 @@ class XWindow(Window[xwayland.Surface]):
     def _to_static(
         self, x: int | None, y: int | None, width: int | None, height: int | None
     ) -> XStatic:
-        return XStatic(
-            self.core, self.qtile, self, self._idle_inhibitors_count, x, y, width, height
-        )
+        return XStatic(self.core, self.qtile, self, x, y, width, height)
 
 
 class ConfigWindow:
@@ -366,16 +401,13 @@ class XStatic(Static[xwayland.Surface]):
         core: Core,
         qtile: Qtile,
         win: XWindow,
-        idle_inhibitor_count: int,
         x: int | None,
         y: int | None,
         width: int | None,
         height: int | None,
     ):
         surface = win.surface
-        Static.__init__(
-            self, core, qtile, surface, win.wid, idle_inhibitor_count=idle_inhibitor_count
-        )
+        Static.__init__(self, core, qtile, surface, win.wid)
         self._wm_class = surface.wm_class
 
         self._conf_x = x
@@ -383,8 +415,8 @@ class XStatic(Static[xwayland.Surface]):
         self._conf_width = width
         self._conf_height = height
 
-        self.add_listener(surface.map_event, self._on_map)
-        self.add_listener(surface.unmap_event, self._on_unmap)
+        self.add_listener(surface.surface.map_event, self._on_map)
+        self.add_listener(surface.surface.unmap_event, self._on_unmap)
         self.add_listener(surface.destroy_event, self._on_destroy)
         self.add_listener(surface.request_configure_event, self._on_request_configure)
         self.add_listener(surface.set_title_event, self._on_set_title)

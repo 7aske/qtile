@@ -212,6 +212,10 @@ auto_minimize = True
 # When using the Wayland backend, this can be used to configure input devices.
 wl_input_rules = None
 
+# xcursor theme (string or None) and size (integer) for Wayland backend
+wl_xcursor_theme = None
+wl_xcursor_size = 24
+
 # XXX: Gasp! We're lying here. In fact, nobody really uses or cares about this
 # string besides java UI toolkits; you can see several discussions on the
 # mailing lists, GitHub issues, and other WM documentation that suggest setting

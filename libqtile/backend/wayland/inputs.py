@@ -222,7 +222,7 @@ class Keyboard(_Device):
     def finalize(self) -> None:
         super().finalize()
         self.core.keyboards.remove(self)
-        if self.core.seat.keyboard == self.keyboard:
+        if self.core.seat.get_keyboard() == self.keyboard:
             # If this is the active keyboard and we have other keyboards enabled, set
             # the previous keyboard as the new active keyboard.
             if self.core.keyboards:
@@ -239,6 +239,7 @@ class Keyboard(_Device):
                 layout=layout, options=options, variant=variant
             )
             self._keymaps[(layout, options, variant)] = keymap
+        self._state = keymap.state_new()
         self.keyboard.set_keymap(keymap)
 
     def _on_modifier(self, _listener: Listener, _data: Any) -> None:
@@ -247,8 +248,6 @@ class Keyboard(_Device):
 
     def _on_key(self, _listener: Listener, event: KeyboardKeyEvent) -> None:
         self.qtile = self.core.qtile
-
-        self.core.idle.notify_activity(self.seat)
 
         if event.state == KEY_PRESSED and not self.core.exclusive_client:
             # translate libinput keycode -> xkbcommon

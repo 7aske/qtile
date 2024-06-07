@@ -72,6 +72,8 @@ class Config:
     # Really we'd want to check this Any is libqtile.backend.wayland.ImportConfig, but
     # doing so forces the import, creating a hard dependency for wlroots.
     wl_input_rules: dict[str, Any] | None
+    wl_xcursor_theme: str | None
+    wl_xcursor_size: int
 
     def __init__(self, file_path=None, **settings):
         """Create a Config() object from settings
@@ -148,7 +150,7 @@ class Config:
         # because they are dynamically resolved from the default_config. so we
         # need to ignore the errors here about missing attributes.
         for k in self.keys:
-            if k.key.lower() not in valid_keys:
+            if isinstance(k.key, str) and k.key.lower() not in valid_keys:
                 raise ConfigError("No such key: %s" % k.key)
             for m in k.modifiers:
                 if m.lower() not in valid_mods:
