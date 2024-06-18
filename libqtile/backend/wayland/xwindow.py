@@ -342,6 +342,22 @@ class XWindow(Window[xwayland.Surface]):
         if height < 1:
             height = 1
 
+        place_changed = any(
+            [self.x != x, self.y != y, self._width != width, self._height != height]
+        )
+        geom_changed = any(
+            [
+                self.surface.x != x,
+                self.surface.y != y,
+                self.surface.width != width,
+                self.surface.height != height,
+            ]
+        )
+        needs_repos = place_changed or geom_changed
+        has_border_changed = any(
+            [borderwidth != self.borderwidth, bordercolor != self.bordercolor]
+        )
+
         self.x = x
         self.y = y
         self._width = width
@@ -349,9 +365,11 @@ class XWindow(Window[xwayland.Surface]):
 
         self.container.node.set_position(x, y)
         self.surface.configure(x, y, width, height)
-        self.clip()
+        if needs_repos:
+            self.clip()
 
-        self.paint_borders(bordercolor, borderwidth)
+        if needs_repos or has_border_changed:
+            self.paint_borders(bordercolor, borderwidth)
 
         if above:
             self.bring_to_front()
@@ -376,7 +394,9 @@ class XWindow(Window[xwayland.Surface]):
     def _to_static(
         self, x: int | None, y: int | None, width: int | None, height: int | None
     ) -> XStatic:
-        return XStatic(self.core, self.qtile, self, x, y, width, height)
+        return XStatic(
+            self.core, self.qtile, self, self._idle_inhibitors_count, x, y, width, height
+        )
 
 
 class ConfigWindow:
@@ -401,13 +421,16 @@ class XStatic(Static[xwayland.Surface]):
         core: Core,
         qtile: Qtile,
         win: XWindow,
+        idle_inhibitor_count: int,
         x: int | None,
         y: int | None,
         width: int | None,
         height: int | None,
     ):
         surface = win.surface
-        Static.__init__(self, core, qtile, surface, win.wid)
+        Static.__init__(
+            self, core, qtile, surface, win.wid, idle_inhibitor_count=idle_inhibitor_count
+        )
         self._wm_class = surface.wm_class
 
         self._conf_x = x

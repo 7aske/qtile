@@ -63,6 +63,7 @@ class XdgWindow(Window[XdgSurface]):
         Window.__init__(self, core, qtile, surface)
 
         self._wm_class = surface.toplevel.app_id
+        self._geom = Box(0, 0, 0, 0)
         surface.set_wm_capabilities(WM_CAPABILITIES)
         surface.data = self.data_handle
         self.tree = core.scene.xdg_surface_create(self.container, surface)
@@ -229,8 +230,9 @@ class XdgWindow(Window[XdgSurface]):
             return
         if next(self.tree.children, None) is None:
             return
-        geom = self.surface.get_geometry()
-        self.tree.node.subsurface_tree_set_clip(Box(geom.x, geom.y, self.width, self.height))
+        self.tree.node.subsurface_tree_set_clip(
+            Box(self._geom.x, self._geom.y, self.width, self.height)
+        )
 
     def place(
         self,
@@ -253,8 +255,8 @@ class XdgWindow(Window[XdgSurface]):
             width -= margin[1] + margin[3]
             height -= margin[0] + margin[2]
 
+        state = self.surface.toplevel._ptr.current
         if respect_hints:
-            state = self.surface.toplevel._ptr.current
             width = max(width, state.min_width)
             height = max(height, state.min_height)
             if state.max_width:
@@ -273,17 +275,44 @@ class XdgWindow(Window[XdgSurface]):
         if height < 1:
             height = 1
 
+        geom = self.surface.get_geometry()
+        geom_changed = any(
+            [
+                self._geom.x != geom.x,
+                self._geom.y != geom.y,
+                self._geom.width != geom.width,
+                self._geom.height != geom.height,
+            ]
+        )
+        place_changed = any(
+            [
+                self.x != x,
+                self.y != y,
+                self._width != width,
+                self._height != height,
+                state.width != width,
+                state.height != height,
+            ]
+        )
+        needs_repos = place_changed or geom_changed
+        has_border_changed = any(
+            [borderwidth != self.borderwidth, bordercolor != self.bordercolor]
+        )
+
+        self._geom = geom
         self.x = x
         self.y = y
         self._width = width
         self._height = height
 
         self.container.node.set_position(x, y)
-        self.surface.set_size(width, height)
-        self.surface.set_bounds(width, height)
-        self.clip()
+        if needs_repos:
+            self.surface.set_size(width, height)
+            self.surface.set_bounds(width, height)
+            self.clip()
 
-        self.paint_borders(bordercolor, borderwidth)
+        if needs_repos or has_border_changed:
+            self.paint_borders(bordercolor, borderwidth)
 
         if above:
             self.bring_to_front()
@@ -313,6 +342,7 @@ class XdgWindow(Window[XdgSurface]):
             self.core,
             self.qtile,
             self,
+            self._idle_inhibitors_count,
         )
 
 
@@ -324,9 +354,12 @@ class XdgStatic(Static[XdgSurface]):
         core: Core,
         qtile: Qtile,
         win: XdgWindow,
+        idle_inhibitor_count: int,
     ):
         surface = win.surface
-        Static.__init__(self, core, qtile, surface, win.wid)
+        Static.__init__(
+            self, core, qtile, surface, win.wid, idle_inhibitor_count=idle_inhibitor_count
+        )
 
         if surface.toplevel.title:
             self.name = surface.toplevel.title
