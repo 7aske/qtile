@@ -39,7 +39,6 @@ if typing.TYPE_CHECKING:
     from libqtile.utils import ColorsType
     from libqtile.widget.base import _Widget
 
-
 NESW = ("top", "right", "bottom", "left")
 
 
@@ -442,8 +441,6 @@ class Bar(Gap, configurable.Configurable, CommandObject):
         if self.window:
             self.window.kill()
             self.window = None
-        for widget in self.widgets:
-            widget.finalize()
         self.widgets.clear()
 
     def _resize(self, length: int, widgets: list[_Widget]) -> None:
@@ -745,22 +742,20 @@ class Bar(Gap, configurable.Configurable, CommandObject):
         self._reserved_space_updated = True
 
     @expose_command()
-    def fake_button_press(
-        self, screen: int, position: str, x: int, y: int, button: int = 1
-    ) -> None:
+    def fake_button_press(self, x: int, y: int, button: int = 1) -> None:
         """
-        Fake a mouse-button-press on the bar. Co-ordinates are relative
+        Fake a mouse-button-press on the bar. Coordinates are relative
         to the top-left corner of the bar.
 
         Parameters
         ==========
-        widgets :
-            A list of widget objects.
-        size :
-            The "thickness" of the bar, i.e. the height of a horizontal bar, or the
-            width of a vertical bar.
+        x :
+            X coordinate of the mouse button press.
+        y :
+            Y coordinate of the mouse button press.
+        button:
+            Mouse button, for more details, see :ref:`mouse-events`.
         """
-        # TODO: drop the screen and position args, update relevant tests
         self.process_button_click(x, y, button)
 
     def set_layer(self) -> None:
@@ -772,4 +767,4 @@ class Bar(Gap, configurable.Configurable, CommandObject):
                 self.window.keep_above(enable=True)
 
 
-BarType = typing.Union[Bar, Gap]
+BarType = Bar | Gap

@@ -48,7 +48,7 @@ class _Group(CommandObject):
     A group is identified by its name but displayed in GroupBox widget by its label.
     """
 
-    def __init__(self, name, layout=None, label=None, screen_affinity=None):
+    def __init__(self, name, layout=None, label=None, screen_affinity=None, persist=False):
         self.screen_affinity = screen_affinity
         self.name = name
         self.label = name if label is None else label
@@ -67,6 +67,7 @@ class _Group(CommandObject):
         self.screen = None
         self.current_layout = None
         self.last_focused = None
+        self.persist = persist
 
     def _configure(self, layouts, floating_layout, qtile):
         self.screen = None
@@ -273,6 +274,7 @@ class _Group(CommandObject):
 
     def remove(self, win, force=False):
         self.windows.remove(win)
+        hook.fire("group_window_remove", self, win)
         hadfocus = self._remove_from_focus_history(win)
         win.group = None
 
@@ -364,7 +366,7 @@ class _Group(CommandObject):
             for i in self.windows:
                 if i.wid == sel:
                     return i
-        raise RuntimeError("Invalid selection: {}".format(name))
+        raise RuntimeError(f"Invalid selection: {name}")
 
     @expose_command()
     def setlayout(self, layout):
@@ -574,4 +576,4 @@ class _Group(CommandObject):
         hook.fire("changegroup")
 
     def __repr__(self):
-        return "<group.Group (%r)>" % self.name
+        return f"<group.Group ({self.name!r})>"

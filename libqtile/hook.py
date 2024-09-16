@@ -35,12 +35,12 @@ import asyncio
 import contextlib
 from typing import TYPE_CHECKING
 
-from libqtile import utils
+from libqtile import backend, utils
 from libqtile.log_utils import logger
 from libqtile.resources.sleep import inhibitor
 
 if TYPE_CHECKING:
-    from typing import Callable
+    from collections.abc import Callable
 
     HookHandler = Callable[[Callable], Callable]
 
@@ -174,7 +174,10 @@ class Registry:
 
     def fire(self, event, *args, **kwargs):
         if event not in self.subscribe.hooks:
-            raise utils.QtileError("Unknown event: %s" % event)
+            raise utils.QtileError(f"Unknown event: {event}")
+        # Do not fire for Internal windows
+        if any(isinstance(arg, backend.base.window.Internal) for arg in args):
+            return
         # We should check if the registry name is in the subscriptions dict
         # A name can disappear if the config is reloaded (which clears subscriptions)
         # but there are no hook subscriptions. This is not an issue for qtile core but
@@ -514,6 +517,29 @@ hooks: list[Hook] = [
         """,
     ),
     Hook(
+        "group_window_remove",
+        """Called when a window is removed from a group
+
+        **Arguments**
+
+            * ``Group`` removing the window
+            * ``Window`` removed from the group
+
+        Example:
+
+        .. code:: python
+
+          from libqtile import hook
+          from libqtile.utils import send_notification
+
+
+          @hook.subscribe.group_window_remove
+          def group_window_remove(group, window):
+              send_notification("qtile", f"Window {window.name} removed from {group.name}")
+
+        """,
+    ),
+    Hook(
         "client_new",
         """
         Called before Qtile starts managing a new client
@@ -569,7 +595,8 @@ hooks: list[Hook] = [
     Hook(
         "client_killed",
         """
-        Called after a client has been unmanaged
+        Called after a client has been unmanaged. This hook is not called for
+        internal windows.
 
         **Arguments**
 

@@ -43,7 +43,7 @@ from libqtile.log_utils import logger
 from libqtile.utils import QtileError
 
 if TYPE_CHECKING:
-    from typing import Callable, Iterator
+    from collections.abc import Callable, Iterator
 
 _IGNORED_EVENTS = {
     xcffib.xproto.CreateNotifyEvent,
@@ -185,7 +185,10 @@ class Core(base.Core):
         self.conn.finalize()
 
     def get_screen_info(self) -> list[ScreenRect]:
-        return self.conn.pseudoscreens
+        ps = self.conn.pseudoscreens
+        if self.qtile:
+            self._xpoll()
+        return ps
 
     @property
     def wmname(self):
@@ -271,7 +274,6 @@ class Core(base.Core):
 
             self.update_client_lists()
             win.change_layer()
-            self.conn.enable_screen_change_notifications()
 
     def warp_pointer(self, x, y):
         self._root.warp_pointer(x, y)
@@ -374,7 +376,7 @@ class Core(base.Core):
         """
         assert self.qtile is not None
 
-        handler = "handle_{event_type}".format(event_type=event_type)
+        handler = f"handle_{event_type}"
         # Certain events expose the affected window id as an "event" attribute.
         event_events = [
             "EnterNotify",
@@ -480,12 +482,12 @@ class Core(base.Core):
         if isinstance(key.key, str):
             keysym = xcbq.keysyms.get(key.key.lower())
             if not keysym:
-                raise utils.QtileError("Unknown keysym: %s" % key.key)
+                raise utils.QtileError(f"Unknown keysym: {key.key}")
 
         else:
             keysym = self.conn.code_to_syms[key.key][0]
             if not keysym:
-                raise utils.QtileError("Unknown keycode: %s" % key.key)
+                raise utils.QtileError(f"Unknown keycode: {key.key}")
 
         modmask = xcbq.translate_masks(key.modifiers)
 

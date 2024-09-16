@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 #
 # Qtile documentation build configuration file, created by
 # sphinx-quickstart on Sat Feb 11 15:20:21 2012.
@@ -354,3 +353,13 @@ graphviz_dot_args = ["-Lg"]
 def setup(app):
     app.add_css_file("no_scrollbars.css")
     app.add_css_file("split_code.css")
+
+
+# readthedocs config, see https://about.readthedocs.com/blog/2024/07/addons-by-default/
+# Define the canonical URL if you are using a custom domain on Read the Docs
+html_baseurl = os.environ.get("READTHEDOCS_CANONICAL_URL", "")
+
+html_context = {}
+# Tell Jinja2 templates the build is running on Read the Docs
+if os.environ.get("READTHEDOCS", "") == "True":
+    html_context["READTHEDOCS"] = True
